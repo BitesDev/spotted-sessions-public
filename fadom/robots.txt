@@ -1,4 +1,0 @@
-User-Agent: *
-Allow: /fadom/
-
-Sitemap: https://spottedsessions.com/sitemap.xml

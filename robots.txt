@@ -1,5 +1,0 @@
-User-Agent: *
-Allow: /
-
-Host: https://spottedsessions.com
-Sitemap: https://spottedsessions.com/sitemap.xml
