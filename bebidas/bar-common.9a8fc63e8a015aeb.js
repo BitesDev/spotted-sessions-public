@@ -80,7 +80,25 @@ export function stateCard(order) {
     return card;
 }
 let chosenBase = "", chosenMixer = "";
+const drinkArtwork = { Tequila: "tequila.svg", Ron: "ron.svg", Mezcal: "mezcal.svg", Mineral: "mineral.svg", "Coca-Cola": "coca-cola.svg", Squirt: "squirt.png" };
+function optionArtwork(value) {
+    const artwork = element("span", undefined, "option-art"), file = drinkArtwork[value];
+    if (file) {
+        const img = element("img");
+        img.src = (document.body.dataset.view === "guest" ? "/bebidas/" : "/") + "bar-art-" + file;
+        img.alt = "";
+        img.decoding = "async";
+        img.width = 120;
+        img.height = 96;
+        if (value === "Squirt")
+            img.className = "squirt-mark";
+        artwork.append(img);
+    }
+    artwork.setAttribute("aria-hidden", "true");
+    return artwork;
+}
 export function menuPriceLabel(menu) { const prices = new Set(menu.products.filter(p => p.base).map(p => p.priceCents)); return prices.size === 1 ? money([...prices][0]) + " MXN por drink" : "Precios en MXN"; }
+export const mixerDescription = (mixer) => ({ Mineral: "Agua mineral", "Coca-Cola": "Coca-Cola", Squirt: "Refresco de toronja", "Las dos": "Mineral + Coca-Cola · mitad y mitad", Pintada: "Mineral + un toque de Coca-Cola" }[mixer] ?? mixer);
 export function menuPicker(menu, quantities, changed) {
     for (const id of Object.keys(quantities))
         if (!menu.products.some(p => p.id === id))
@@ -106,7 +124,14 @@ export function menuPicker(menu, quantities, changed) {
                     chosenBase = value;
                 else
                     chosenMixer = value; changed(); });
-                label.append(radio, element("span", value));
+                const check = element("span", "✓", "option-check");
+                check.setAttribute("aria-hidden", "true");
+                label.append(radio);
+                if (document.body.dataset.view === "counter" && drinkArtwork[value])
+                    label.append(optionArtwork(value));
+                label.append(element("span", value, "option-name"), check);
+                if (["Las dos", "Pintada"].includes(value))
+                    label.append(element("small", mixerDescription(value)));
                 choices.append(label);
             }
             builder.append(choices);

@@ -1,7 +1,8 @@
-import { isCheckoutUrl, $, api, parseDraft, ApiError, copy, element, connection, notice, money, menuPicker, menuPriceLabel, initMap, selectedZone, stateCard, zoneName } from "./bar-common.03470de05d4c9362.js";
+import { isCheckoutUrl, $, api, parseDraft, ApiError, copy, element, connection, notice, money, mixerDescription, menuPriceLabel, initMap, selectedZone, stateCard, zoneName } from "./bar-common.9a8fc63e8a015aeb.js";
 const base = location.hostname === "127.0.0.1" ? "/v1/bar" : "https://spotted-registration-api.pages.dev/v1/bar";
 const storageKey = "spotted-drinks-v1";
 let menu = null, quantities = {}, active = null, current = null, lastSuccess = 0, busy = false, polling = false, draft = null;
+let step = 0, chosenBase = "";
 function saved() { try {
     const value = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
     return Array.isArray(value) ? value.filter(v => v && typeof v.id === "string" && typeof v.token === "string").slice(0, 10) : [];
@@ -24,10 +25,96 @@ catch {
     const input = document.querySelector('input[name="zone"][value="' + draft.zone + '"]');
     if (input)
         input.checked = true;
+    step = 2;
+    notice("Tienes un intento pendiente. Continúa para recuperar el mismo pedido.");
 } }
-function freshness() { const fresh = Date.now() - lastSuccess < 12000 && navigator.onLine; connection(fresh); const total = menu?.products.reduce((n, p) => n + (quantities[p.id] ?? 0) * p.priceCents, 0) ?? 0; $("total").textContent = money(total); $("pay").disabled = busy || !fresh || !menu?.accepting || !total; document.querySelectorAll("[data-requires-connection]").forEach(b => b.disabled = !fresh || busy); }
-function renderMenu() { if (!menu)
-    return; menuPicker(menu, quantities, renderMenu); $("availability").textContent = menu.mode === "test" ? "Modo de prueba · sin cargos reales" : menu.accepting ? menuPriceLabel(menu) : "Los pedidos están en pausa"; freshness(); }
+function freshness() {
+    const fresh = Date.now() - lastSuccess < 12000 && navigator.onLine;
+    connection(fresh);
+    const total = menu?.products.reduce((n, p) => n + (quantities[p.id] ?? 0) * p.priceCents, 0) ?? 0;
+    const available = Object.entries(quantities).filter(([, q]) => q > 0).every(([id]) => menu?.products.some(p => p.id === id && p.available));
+    $("total").textContent = draft ? "En confirmación" : money(total);
+    $("pay").disabled = busy || !fresh || (!draft && (!menu?.accepting || !total || !available));
+    $("pay").textContent = busy ? "Confirmando…" : draft ? "Continuar ↗" : "Pagar ↗";
+    $("step-back").disabled = busy || !!draft;
+    $("name").readOnly = busy || !!draft;
+    document.querySelectorAll('input[name="zone"]').forEach(input => input.disabled = busy || !!draft);
+    document.querySelectorAll("[data-requires-connection]").forEach(b => b.disabled = !fresh || busy);
+}
+function showStep(next) { step = next; notice(""); renderMenu(); $("order-title").focus({ preventScroll: true }); window.scrollTo({ top: 0 }); }
+function renderMenu() {
+    if (!menu)
+        return;
+    $("availability").textContent = menu.mode === "test" ? "Modo de prueba · sin cargos reales" : menu.accepting ? menuPriceLabel(menu) : "Los pedidos están en pausa";
+    $("payment-note").textContent = menu.provider === "mercadopago" ? "Pago seguro con Mercado Pago · seguimiento al volver" : "Pago seguro · seguimiento al volver";
+    $("order-title").textContent = step === 0 ? "¿Qué quieres tomar?" : step === 1 ? chosenBase + " ¿con qué?" : "Te lo llevamos.";
+    $("step-count").textContent = "0" + (step + 1) + " / 03";
+    document.querySelectorAll(".step-tracks i").forEach((track, index) => track.classList.toggle("complete", index <= step));
+    $("step-back").hidden = step === 0;
+    $("choose").hidden = step === 2;
+    $("delivery").hidden = step !== 2;
+    const container = $("products"), focused = document.activeElement?.getAttribute("data-choice");
+    container.replaceChildren();
+    if (step < 2) {
+        const combinations = menu.products.filter(p => p.base && p.mixer);
+        const values = step === 0 ? [...new Set(combinations.map(p => p.base))] : combinations.filter(p => p.base === chosenBase).map(p => p.mixer);
+        for (const [index, value] of values.entries()) {
+            const product = step === 1 ? combinations.find(p => p.base === chosenBase && p.mixer === value) : undefined;
+            const button = element("button", undefined, "quick-option glass");
+            button.type = "button";
+            button.dataset.choice = value;
+            button.disabled = busy || !!draft || !menu.accepting || !(step === 0 ? combinations.some(p => p.base === value && p.available) : product?.available);
+            const number = element("span", String(index + 1).padStart(2, "0"), "choice-number"), text = element("span", undefined, "choice-copy"), arrow = element("span", "↗", "choice-arrow");
+            number.setAttribute("aria-hidden", "true");
+            arrow.setAttribute("aria-hidden", "true");
+            text.append(element("strong", value));
+            if (step === 1 && value !== "Coca-Cola")
+                text.append(element("small", mixerDescription(value)));
+            if (product && !product.available)
+                text.append(element("small", "Agotado"));
+            button.append(number, text, arrow);
+            button.addEventListener("click", () => { if (busy || draft)
+                return; if (step === 0) {
+                chosenBase = value;
+                showStep(1);
+            }
+            else if (product?.available) {
+                quantities = { [product.id]: 1 };
+                showStep(2);
+            } });
+            container.append(button);
+        }
+        if (!values.length)
+            container.append(element("p", "La carta se está actualizando. Intenta de nuevo en un momento.", "subtle"));
+        if (focused)
+            Array.from(container.querySelectorAll("button")).find(b => b.dataset.choice === focused)?.focus({ preventScroll: true });
+    }
+    const quantityFocus = document.activeElement?.getAttribute("data-quantity"), summary = $("drink-summary");
+    summary.replaceChildren();
+    for (const [id, quantity] of Object.entries(quantities).filter(([, q]) => q > 0)) {
+        const product = menu.products.find(p => p.id === id), line = element("div", undefined, "summary-line"), detail = element("div");
+        detail.append(element("strong", product?.name ?? "Bebida de tu pedido anterior"));
+        if (product && !product.available && !draft)
+            detail.append(element("p", "Agotado · vuelve y elige otra mezcla", "review"));
+        const qty = element("div", undefined, "quantity"), minus = element("button", "−"), plus = element("button", "+"), count = element("output", String(quantity));
+        minus.type = plus.type = "button";
+        minus.dataset.quantity = id + "-minus";
+        plus.dataset.quantity = id + "-plus";
+        minus.setAttribute("aria-label", "Una bebida menos");
+        plus.setAttribute("aria-label", "Una bebida más");
+        count.setAttribute("aria-label", "Cantidad");
+        minus.disabled = quantity <= 1 || busy || !!draft;
+        plus.disabled = Object.values(quantities).reduce((a, b) => a + b, 0) >= 5 || busy || !!draft || !product?.available;
+        minus.onclick = () => { quantities[id]--; renderMenu(); };
+        plus.onclick = () => { quantities[id]++; renderMenu(); };
+        qty.append(minus, count, plus);
+        line.append(detail, qty);
+        summary.append(line);
+    }
+    if (quantityFocus)
+        Array.from(summary.querySelectorAll("button")).find(b => b.dataset.quantity === quantityFocus)?.focus({ preventScroll: true });
+    freshness();
+}
 function receiptLink(ref) { return location.origin + "/bebidas/#pedido=" + ref.id + "." + ref.token; }
 function renderHistory() { const list = $("history-list"); list.replaceChildren(); for (const [i, ref] of saved().entries()) {
     const a = element("a", i === 0 ? "Último pedido" : "Pedido anterior " + i, "glass");
@@ -38,6 +125,7 @@ function renderReceipt(order, checkoutUrl = null) {
     current = order;
     $("receipt").hidden = false;
     $("shop").hidden = true;
+    $("order-title").textContent = "Listo. Sigue tu drink.";
     const container = $("receipt-card"), card = stateCard(order);
     card.append(element("strong", money(order.totalCents), "receipt-total"));
     if (order.payment === "pending" && order.state === "awaiting_payment") {
@@ -131,6 +219,7 @@ async function openReceipt() {
         current = null;
         $("receipt").hidden = true;
         $("shop").hidden = false;
+        renderMenu();
         return;
     }
     active = { id: match[1], token: match[2] };
@@ -148,11 +237,15 @@ async function openReceipt() {
 }
 $("order-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (busy || !menu)
+    if (busy || !menu || step !== 2 || $("pay").disabled)
         return;
     const name = $("name").value.trim(), zone = selectedZone();
-    if (!name || !zone) {
-        notice("Escribe tu nombre y elige dónde estás.");
+    if (!draft && (name.length < 2 || !zone)) {
+        notice(name.length < 2 ? "Escribe el nombre de tu etiqueta." : "Elige dónde te llevamos tu bebida.");
+        if (name.length < 2)
+            $("name").focus();
+        else
+            document.querySelector('input[name="zone"]')?.focus();
         return;
     }
     draft ??= { requestId: crypto.randomUUID(), name, zone, items: menu.products.filter(p => quantities[p.id]).map(p => ({ id: p.id, quantity: quantities[p.id] })) };
@@ -161,12 +254,13 @@ $("order-form").addEventListener("submit", async (event) => {
     }
     catch { }
     busy = true;
-    freshness();
+    renderMenu();
     notice("");
     try {
         const data = await api(base + "/orders", "POST", draft);
         active = { id: data.order.id, token: data.token };
         save(active);
+        renderHistory();
         draft = null;
         try {
             localStorage.removeItem("spotted-drinks-draft");
@@ -188,14 +282,19 @@ $("order-form").addEventListener("submit", async (event) => {
             }
             catch { }
         }
-        notice(e.message + " Reintentar conserva el mismo pedido.");
+        notice(e.message + (draft ? " Reintentar conserva el mismo pedido." : " Revisa tu selección."));
     }
     finally {
         busy = false;
-        freshness();
+        if (!active)
+            renderMenu();
+        else
+            freshness();
     }
 });
-$("new-order").addEventListener("click", () => { window.history.replaceState(null, "", location.pathname); active = null; current = null; quantities = {}; $("receipt").hidden = true; $("shop").hidden = false; renderMenu(); notice(""); window.scrollTo({ top: 0 }); });
+$("step-back").addEventListener("click", () => { if (!busy && !draft)
+    showStep(step === 2 ? 1 : 0); });
+$("new-order").addEventListener("click", () => { window.history.replaceState(null, "", location.pathname); active = null; current = null; quantities = {}; chosenBase = ""; $("receipt").hidden = true; $("shop").hidden = false; showStep(0); });
 window.addEventListener("hashchange", () => void openReceipt());
 window.addEventListener("online", () => void refresh());
 window.addEventListener("offline", () => connection(false));
@@ -220,6 +319,9 @@ setInterval(() => { if (!document.hidden) {
     if (active)
         void refresh();
     else
-        void api(base + "/menu").then(value => { menu = value; lastSuccess = Date.now(); renderMenu(); }).catch(() => { lastSuccess = 0; connection(false); });
+        void api(base + "/menu").then(value => { const changed = JSON.stringify(menu) !== JSON.stringify(value); menu = value; lastSuccess = Date.now(); if (changed)
+            renderMenu();
+        else
+            freshness(); }).catch(() => { lastSuccess = 0; connection(false); });
 } }, 2000);
 setInterval(freshness, 1000);
