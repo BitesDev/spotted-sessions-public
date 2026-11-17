@@ -1,4 +1,4 @@
-import { $, api, parseDraft, ApiError, copy, element, connection, notice, money, menuPicker, initMap, selectedZone, stateCard, zoneName } from "./bar-common.a25b670c89ea6f80.js";
+import { isCheckoutUrl, $, api, parseDraft, ApiError, copy, element, connection, notice, money, menuPicker, initMap, selectedZone, stateCard, zoneName } from "./bar-common.19841c10d14e7978.js";
 const base = location.hostname === "127.0.0.1" ? "/v1/bar" : "https://spotted-registration-api.pages.dev/v1/bar";
 const storageKey = "spotted-drinks-v1";
 let menu = null, quantities = {}, active = null, current = null, lastSuccess = 0, busy = false, polling = false, draft = null;
@@ -50,7 +50,7 @@ function renderReceipt(order, checkoutUrl = null) {
             freshness();
             try {
                 const data = await api(base + "/orders/" + active.id + "/checkout", "POST", {}, { Authorization: "Bearer " + active.token });
-                if (data.checkoutUrl?.startsWith("https://checkout.stripe.com/"))
+                if (isCheckoutUrl(data.checkoutUrl))
                     location.assign(data.checkoutUrl);
                 else
                     notice("El pago todavía no está disponible.");
@@ -173,7 +173,7 @@ $("order-form").addEventListener("submit", async (event) => {
         }
         catch { }
         window.history.replaceState(null, "", "#pedido=" + active.id + "." + active.token);
-        if (data.checkoutUrl?.startsWith("https://checkout.stripe.com/"))
+        if (isCheckoutUrl(data.checkoutUrl))
             location.assign(data.checkoutUrl);
         else {
             renderReceipt(data.order);

@@ -109,3 +109,11 @@ export function menuPicker(menu, quantities, changed) {
 }
 export function selectedZone() { return document.querySelector('input[name="zone"]:checked')?.value ?? ""; }
 export function initMap() { document.querySelectorAll('input[name="zone"]').forEach(input => input.addEventListener("change", () => { $("zone-label").textContent = zoneName(input.value); })); }
+export function isCheckoutUrl(value) { if (!value)
+    return false; try {
+    const url = new URL(value);
+    return url.origin === "https://checkout.stripe.com" || (url.origin === "https://www.mercadopago.com.mx" && url.pathname === "/checkout/v1/redirect");
+}
+catch {
+    return false;
+} }
