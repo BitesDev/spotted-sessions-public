@@ -1,4 +1,4 @@
-import { isCheckoutUrl, $, api, parseDraft, ApiError, copy, element, connection, notice, money, menuPicker, initMap, selectedZone, stateCard, zoneName } from "./bar-common.19841c10d14e7978.js";
+import { isCheckoutUrl, $, api, parseDraft, ApiError, copy, element, connection, notice, money, menuPicker, menuPriceLabel, initMap, selectedZone, stateCard, zoneName } from "./bar-common.03470de05d4c9362.js";
 const base = location.hostname === "127.0.0.1" ? "/v1/bar" : "https://spotted-registration-api.pages.dev/v1/bar";
 const storageKey = "spotted-drinks-v1";
 let menu = null, quantities = {}, active = null, current = null, lastSuccess = 0, busy = false, polling = false, draft = null;
@@ -27,7 +27,7 @@ catch {
 } }
 function freshness() { const fresh = Date.now() - lastSuccess < 12000 && navigator.onLine; connection(fresh); const total = menu?.products.reduce((n, p) => n + (quantities[p.id] ?? 0) * p.priceCents, 0) ?? 0; $("total").textContent = money(total); $("pay").disabled = busy || !fresh || !menu?.accepting || !total; document.querySelectorAll("[data-requires-connection]").forEach(b => b.disabled = !fresh || busy); }
 function renderMenu() { if (!menu)
-    return; menuPicker(menu, quantities, renderMenu); $("availability").textContent = menu.mode === "test" ? "Modo de prueba · sin cargos reales" : menu.accepting ? "Precios en MXN" : "Los pedidos están en pausa"; freshness(); }
+    return; menuPicker(menu, quantities, renderMenu); $("availability").textContent = menu.mode === "test" ? "Modo de prueba · sin cargos reales" : menu.accepting ? menuPriceLabel(menu) : "Los pedidos están en pausa"; freshness(); }
 function receiptLink(ref) { return location.origin + "/bebidas/#pedido=" + ref.id + "." + ref.token; }
 function renderHistory() { const list = $("history-list"); list.replaceChildren(); for (const [i, ref] of saved().entries()) {
     const a = element("a", i === 0 ? "Último pedido" : "Pedido anterior " + i, "glass");

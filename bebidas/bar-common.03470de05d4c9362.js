@@ -4,9 +4,9 @@ export function parseDraft(raw) {
         if (!v || typeof v !== "object")
             return null;
         const d = v;
-        if (typeof d.requestId !== "string" || !/^[a-f0-9-]{36}$/.test(d.requestId) || typeof d.name !== "string" || d.name.length > 60 || !d.zone || !["ventana", "pista", "dj"].includes(d.zone) || !Array.isArray(d.items) || d.items.length < 1 || d.items.length > 3)
+        if (typeof d.requestId !== "string" || !/^[a-f0-9-]{36}$/.test(d.requestId) || typeof d.name !== "string" || d.name.length > 60 || !d.zone || !["ventana", "pista", "dj"].includes(d.zone) || !Array.isArray(d.items) || d.items.length < 1 || d.items.length > 5)
             return null;
-        if (!d.items.every(i => i && ["drink-1", "drink-2", "drink-3"].includes(i.id) && Number.isInteger(i.quantity) && i.quantity > 0 && i.quantity <= 5))
+        if (!d.items.every(i => i && typeof i.id === "string" && /^[a-z0-9-]{1,50}$/.test(i.id) && Number.isInteger(i.quantity) && i.quantity > 0 && i.quantity <= 5) || d.items.reduce((n, i) => n + i.quantity, 0) > 5 || new Set(d.items.map(i => i.id)).size !== d.items.length)
             return null;
         return d;
     }
@@ -79,11 +79,53 @@ export function stateCard(order) {
     card.append(statuses, element("p", stateName(order.state) + (order.test ? " · Prueba" : ""), "subtle"));
     return card;
 }
+let chosenBase = "", chosenMixer = "";
+export function menuPriceLabel(menu) { const prices = new Set(menu.products.filter(p => p.base).map(p => p.priceCents)); return prices.size === 1 ? money([...prices][0]) + " MXN por drink" : "Precios en MXN"; }
 export function menuPicker(menu, quantities, changed) {
+    for (const id of Object.keys(quantities))
+        if (!menu.products.some(p => p.id === id))
+            delete quantities[id];
     const focused = document.activeElement?.getAttribute("aria-label");
     const container = $("products");
     container.replaceChildren();
-    for (const [index, p] of menu.products.entries()) {
+    const combinations = menu.products.filter(p => p.base && p.mixer), custom = combinations.length > 0;
+    if (custom) {
+        const builder = element("div", undefined, "drink-builder");
+        for (const [field, title, current] of [["base", "1. Tu base", chosenBase], ["mixer", "2. Tu refresco", chosenMixer]]) {
+            const choices = element("fieldset", undefined, "drink-options");
+            choices.append(element("legend", title));
+            for (const value of [...new Set(combinations.map(p => p[field]))]) {
+                const label = element("label"), radio = element("input");
+                radio.type = "radio";
+                radio.name = "drink-" + field;
+                radio.value = value;
+                radio.checked = current === value;
+                radio.setAttribute("aria-label", value);
+                radio.disabled = !combinations.some(p => p[field] === value && p.available && (field === "base" || !chosenBase || p.base === chosenBase));
+                radio.addEventListener("change", () => { if (field === "base")
+                    chosenBase = value;
+                else
+                    chosenMixer = value; changed(); });
+                label.append(radio, element("span", value));
+                choices.append(label);
+            }
+            builder.append(choices);
+        }
+        const selected = combinations.find(p => p.base === chosenBase && p.mixer === chosenMixer), count = Object.values(quantities).reduce((a, b) => a + b, 0);
+        const add = element("button", selected ? "Añadir · " + money(selected.priceCents) : "Elige tu combinación", "glass add-drink");
+        add.type = "button";
+        add.setAttribute("aria-label", "Añadir combinación");
+        add.disabled = !selected?.available || count >= 5;
+        add.addEventListener("click", () => { if (selected && selected.available && count < 5) {
+            quantities[selected.id] = (quantities[selected.id] ?? 0) + 1;
+            changed();
+        } });
+        builder.append(add);
+        container.append(builder);
+        if (count)
+            container.append(element("h2", "Tu pedido", "cart-title"));
+    }
+    for (const [index, p] of menu.products.filter(p => !custom || quantities[p.id] > 0).entries()) {
         const card = element("article", undefined, "product");
         card.dataset.product = p.id;
         const detail = element("div", undefined, "product-detail");
@@ -106,6 +148,8 @@ export function menuPicker(menu, quantities, changed) {
     }
     if (focused)
         Array.from(container.querySelectorAll("button")).find(b => b.getAttribute("aria-label") === focused)?.focus({ preventScroll: true });
+    if (focused)
+        Array.from(container.querySelectorAll("input")).find(input => input.getAttribute("aria-label") === focused)?.focus({ preventScroll: true });
 }
 export function selectedZone() { return document.querySelector('input[name="zone"]:checked')?.value ?? ""; }
 export function initMap() { document.querySelectorAll('input[name="zone"]').forEach(input => input.addEventListener("change", () => { $("zone-label").textContent = zoneName(input.value); })); }
