@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /pato/
+
+Sitemap: https://spottedsessions.com/sitemap.xml
